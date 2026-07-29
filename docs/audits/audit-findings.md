@@ -77,8 +77,9 @@ Two sub-decisions, both load-bearing:
 Every offset and index an icon or bitmap declares is bounds-checked before use, and
 `MaxPixels` bounds both the PNG-payload and DIB paths.
 
-**Validation.** 4,737 of the 4,756 files now decode (up from 4,164; the 19 that do not are
-WebP). Of the genuine icons, **4,133 are pixel-identical to Pillow's** decode of the same
+**Validation.** 4,737 of the 4,756 files now decode; the 19 that do not are WebP. The
+v0.1.0 binary, run over the same corpus, decoded **567** — only the PNG and GIF files
+wearing an `.ico` extension, and not one actual icon. Of the genuine icons, **4,133 are pixel-identical to Pillow's** decode of the same
 frame, and all 28 disagreements are Pillow trusting the directory `bpp`: 26 where it renders
 a stale mask over a live alpha channel, 2 where it fails outright with `buffer is not large
 enough`. Forcing Pillow to the bitmap header's depth makes all 28 match exactly — which is
