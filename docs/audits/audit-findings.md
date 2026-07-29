@@ -6,8 +6,9 @@ turned out to matter most), and doc-drift. Every finding was reproduced against 
 before repair — `*` marks the ones with a reproduction artifact recorded below.
 
 Repairs re-validated: gofmt / build / vet / `go test -race` / staticcheck clean;
-`FuzzDecode` re-soaked over the new ICO/BMP parsers (7.2M execs, no panic); the perceptual
-decoders diffed **pixel-for-pixel against Pillow** over 4,756 real `.ico` files; and
+`FuzzDecode` re-soaked over the new ICO/BMP parsers (7.2M execs, no panic); the new decoders
+diffed **pixel-for-pixel against Pillow** over the icons and bitmaps in a 4,756-file `.ico`
+corpus found on a developer machine; and
 `Favicon` re-checked end-to-end against Python `mmh3` + `base64.encodebytes` on a real
 `favicon.ico` (`-469509536` both sides).
 
@@ -119,8 +120,8 @@ trap for any future caller. **Fix:** the length check moved ahead of the slice.
 
 The comment claimed a bit is set where a pixel is "**brighter** than its right-hand
 neighbour"; the code is `g[i] < g[i+1]`, i.e. darker — the gradient rising to the right. The
-code matches the usual dhash convention (and imagehash), so the comment was the error, and
-changing the code instead would have invalidated every stored hash for nothing. **Fix:** the
+code is the side to keep: it matches the usual dhash convention, and changing it instead
+would have invalidated every stored hash for nothing. **Fix:** the
 comment now states the code's actual comparison and names the convention.
 
 ## Considered, deliberately not changed
@@ -131,10 +132,11 @@ comment now states the code's actual comparison and names the convention.
   several-fold, but it doubles the luma code and risks the fast and slow paths diverging —
   an optimisation with no measured need. `BenchmarkHashes1080p` was added instead, so the
   cost is visible before anyone pays down that risk.
-- **PHash is not imagehash-compatible**, and deliberately: retina excludes the DC term from
-  both the median and the bits (imagehash includes it), buying brightness invariance at the
-  price of cross-tool comparability. Only `Favicon` claims compatibility with anything, and
-  it is pinned to Shodan by known-answer tests.
+- **PHash values are not portable to other pHash implementations**, deliberately: excluding
+  the DC term from both the median and the bits buys brightness invariance at the price of
+  cross-tool comparability, and implementations differ on exactly this. Only `Favicon` claims
+  compatibility with anything, and it is pinned to Shodan by known-answer tests. (Not
+  verified against a specific other implementation here — treat the values as retina's own.)
 - **A near-flat image's PHash remains floating-point noise.** Documented rather than fixed:
   there is no structure to hash, and `DHash`/`AHash` of a uniform image are exactly 0, which
   is the stable, testable fact.
