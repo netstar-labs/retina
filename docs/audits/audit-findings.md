@@ -79,11 +79,16 @@ Every offset and index an icon or bitmap declares is bounds-checked before use, 
 
 **Validation.** 4,737 of the 4,756 files now decode; the 19 that do not are WebP. The
 v0.1.0 binary, run over the same corpus, decoded **567** — only the PNG and GIF files
-wearing an `.ico` extension, and not one actual icon. Of the genuine icons, **4,133 are pixel-identical to Pillow's** decode of the same
-frame, and all 28 disagreements are Pillow trusting the directory `bpp`: 26 where it renders
-a stale mask over a live alpha channel, 2 where it fails outright with `buffer is not large
-enough`. Forcing Pillow to the bitmap header's depth makes all 28 match exactly — which is
-what establishes the direction of the disagreement rather than assuming it. BMP matches
+wearing an `.ico` extension, and not one actual icon.
+
+Of the **4,163** genuine icons, **4,133 decode pixel-identically to Pillow**. All 30
+remaining paths (16 distinct files, several duplicated in the corpus) are Pillow trusting the
+directory `bpp`: 26 where it decodes the frame differently — a stale mask over a live alpha
+channel — and 4 where it cannot open the file at all (`buffer is not large enough`, on a
+24-bpp bitmap whose directory claims 32). Re-running every one of the 30 with Pillow forced
+to the depth the bitmap header declares makes **all 30 match exactly, none unresolved** —
+which is what establishes the direction of the disagreement rather than assuming retina is
+the right one. BMP matches
 Pillow exactly bar ±1 mid-scale rounding on 5-bit channels (retina replicates bits, so full
 scale maps to `0xff` rather than `0xf8`).
 
@@ -96,8 +101,9 @@ Guarded by `TestICOEmbeddedPNG`, `TestICODIBDepths`, `TestICOMaskTransparency`,
 
 `hash` and `favicon` printed a per-file error and continued — correct, a batch should not
 abort — but then unconditionally `return nil`, so a run in which *nothing* decoded exited 0.
-The same fail-open exit shape as vigil #2. Reproduced on the real corpus, where 26 files
-failed and the command still reported success.
+The same fail-open exit shape as vigil #2. Reproduced against the v0.1.0 binary: two
+nonexistent paths, two errors on stderr, **`exit 0`**; the same input now exits 1 with
+`hash: 2 of 2 file(s) failed`.
 
 **Fix:** both count failures and return `batchErr`, so the exit status is non-zero if any
 file failed while the rows that succeeded still print. Documented in the CLI help, the user
