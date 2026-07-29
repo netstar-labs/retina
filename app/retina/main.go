@@ -9,7 +9,8 @@
 // "file <tab> phash <tab> dhash <tab> ahash" (16 hex digits each); favicon prints
 // "file <tab> hash" (the signed 32-bit Shodan http.favicon.hash). distance parses two
 // 64-bit hex hashes and prints their bit distance. A per-file error goes to stderr and
-// does not abort the batch.
+// does not abort the batch, but the exit status is 1 if any file failed — a caller
+// scripting this must not read "exit 0" as "everything hashed".
 package main
 
 import (
@@ -64,20 +65,32 @@ func hash(files []string) error {
 	}
 	w := bufio.NewWriter(os.Stdout)
 	defer w.Flush()
+	var failed int
 	for _, f := range files {
 		data, err := os.ReadFile(f)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "retina: %s: %v\n", f, err)
+			failed++
 			continue
 		}
 		img, err := retina.Decode(data)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "retina: %s: %v\n", f, err)
+			failed++
 			continue
 		}
 		fmt.Fprintf(w, "%s\t%016x\t%016x\t%016x\n", f, retina.PHash(img), retina.DHash(img), retina.AHash(img))
 	}
-	return nil
+	return batchErr("hash", failed, len(files))
+}
+
+// batchErr turns a per-file failure count into the command's exit status, so a batch that
+// silently hashed nothing does not look like a success.
+func batchErr(cmd string, failed, total int) error {
+	if failed == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s: %d of %d file(s) failed", cmd, failed, total)
 }
 
 func favicon(files []string) error {
@@ -86,15 +99,17 @@ func favicon(files []string) error {
 	}
 	w := bufio.NewWriter(os.Stdout)
 	defer w.Flush()
+	var failed int
 	for _, f := range files {
 		data, err := os.ReadFile(f)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "retina: %s: %v\n", f, err)
+			failed++
 			continue
 		}
 		fmt.Fprintf(w, "%s\t%d\n", f, retina.Favicon(data))
 	}
-	return nil
+	return batchErr("favicon", failed, len(files))
 }
 
 func distance(args []string) error {

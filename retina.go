@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"image"
+	"image/color"
 	"math"
 	"math/bits"
 	"sort"
@@ -18,18 +19,47 @@ import (
 // screenshot with headroom; brand logos and favicons are far smaller.
 const MaxPixels = 40 << 20
 
-// Decode decodes a PNG, JPEG, or GIF image, rejecting one whose declared dimensions
-// exceed [MaxPixels] before the full, memory-allocating decode.
+// Decode decodes a PNG, JPEG, GIF, ICO, or BMP image, rejecting one whose declared
+// dimensions exceed [MaxPixels] before the full, memory-allocating decode.
+//
+// The format is taken from the bytes, not from any filename, because a favicon is
+// routinely served under the wrong extension — a "favicon.ico" is often a PNG, a GIF, or
+// a bare BMP. ICO and BMP are decoded by this package, the standard library having no
+// decoder for either; the rest go to [image.Decode]. Neither is published through
+// [image.RegisterFormat], so they are reachable through Decode and not through a bare
+// image.Decode elsewhere in the program. WebP is the one format left out: decoding it
+// would cost retina its zero dependencies.
 func Decode(data []byte) (image.Image, error) {
+	switch {
+	case bytes.HasPrefix(data, icoMagic):
+		return decodeICO(data)
+	case bytes.HasPrefix(data, bmpMagic):
+		return decodeBMP(data)
+	}
+	return decodeBounded(data)
+}
+
+// decodeBounded is Decode's standard-library path: read the cheap header-only config
+// first and reject an over-[MaxPixels] image before the allocating decode, so a
+// decompression bomb (huge dimensions from a tiny file) cannot exhaust memory.
+func decodeBounded(data []byte) (image.Image, error) {
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
-	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > MaxPixels {
-		return nil, fmt.Errorf("retina: image %dx%d exceeds MaxPixels (%d)", cfg.Width, cfg.Height, MaxPixels)
+	if err := checkPixels(cfg.Width, cfg.Height); err != nil {
+		return nil, err
 	}
 	img, _, err := image.Decode(bytes.NewReader(data))
 	return img, err
+}
+
+// checkPixels rejects degenerate or over-[MaxPixels] dimensions.
+func checkPixels(w, h int) error {
+	if w <= 0 || h <= 0 || int64(w)*int64(h) > MaxPixels {
+		return fmt.Errorf("retina: image %dx%d exceeds MaxPixels (%d)", w, h, MaxPixels)
+	}
+	return nil
 }
 
 // Distance is the Hamming distance between two hashes — the number of differing bits.
@@ -57,8 +87,9 @@ func AHash(img image.Image) uint64 {
 }
 
 // DHash is the difference hash: downscale to 9×8 grayscale, then set each bit where a
-// pixel is brighter than its right-hand neighbour (8 comparisons per row × 8 rows).
-// It keys on gradients, so it is robust to brightness and gamma shifts.
+// pixel is darker than its right-hand neighbour — i.e. where the gradient rises to the
+// right (8 comparisons per row × 8 rows, the usual dhash convention). It keys on
+// gradients, so it is robust to brightness and gamma shifts.
 func DHash(img image.Image) uint64 {
 	const w, h = 9, 8
 	g := grayResize(img, w, h)
@@ -107,8 +138,31 @@ const (
 	phashLow = 8  // the low-frequency block kept is 8×8 = 64 bits
 )
 
-// grayResize downscales img to a w×h grayscale (Rec.601 luma) matrix by
-// area-averaging, so a hash is independent of the source resolution and format.
+// luma601 is the Rec.601 luma of one pixel composited over an opaque white background,
+// in the 0…0xffff range.
+//
+// The compositing is not cosmetic. [image.Image.At] returns alpha-premultiplied
+// channels, so a fully transparent pixel arrives as black — and brand logos and
+// favicons routinely ship on a transparent background. Hashing the premultiplied values
+// directly would key on the alpha silhouette against black rather than on the artwork:
+// the same mark drawn in dark ink and in white ink hashes identically, and neither
+// matches a screenshot of the mark as a browser renders it. Compositing over white
+// first is what makes those match, white being what an unstyled page shows.
+//
+// Each channel is composited before the weighting rather than after — algebraically the
+// same, since the weights sum to 1, but not in floating point: the shortcut leaves a
+// transparent pixel an epsilon away from an opaque white one, which is enough to flip a
+// PHash bit wherever a flat region puts DCT coefficients in a tie with the median. A
+// caller needing a different backdrop (a white-on-transparent dark-mode logo vanishes
+// against white) should composite explicitly with [image/draw] before hashing.
+func luma601(c color.Color) float64 {
+	r, g, b, a := c.RGBA()
+	d := float64(0xffff - a) // the uncovered part of the pixel, showing white through
+	return 0.299*(float64(r)+d) + 0.587*(float64(g)+d) + 0.114*(float64(b)+d)
+}
+
+// grayResize downscales img to a w×h grayscale ([luma601]) matrix by area-averaging, so
+// a hash is independent of the source resolution and format.
 // Row-major; the zero matrix for a degenerate (empty) image.
 func grayResize(img image.Image, w, h int) []float64 {
 	b := img.Bounds()
@@ -132,8 +186,7 @@ func grayResize(img image.Image, w, h int) []float64 {
 			var sum, n float64
 			for sy := sy0; sy < sy1; sy++ {
 				for sx := sx0; sx < sx1; sx++ {
-					r, g, bl, _ := img.At(sx, sy).RGBA() // 16-bit, alpha-premultiplied
-					sum += 0.299*float64(r) + 0.587*float64(g) + 0.114*float64(bl)
+					sum += luma601(img.At(sx, sy))
 					n++
 				}
 			}
@@ -184,10 +237,10 @@ func dct2D(m []float64) []float64 {
 // medianExcludingDC returns the median of vals[1:] — the low-frequency coefficients
 // without the DC term (vals[0]), which otherwise dominates and skews the threshold.
 func medianExcludingDC(vals []float64) float64 {
-	rest := append([]float64(nil), vals[1:]...)
-	if len(rest) == 0 {
+	if len(vals) < 2 {
 		return 0
 	}
+	rest := append([]float64(nil), vals[1:]...)
 	sort.Float64s(rest)
 	n := len(rest)
 	if n%2 == 1 {
