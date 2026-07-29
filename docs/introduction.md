@@ -28,6 +28,14 @@ bit per coefficient according to whether it is above the median. Two images that
 alike produce nearly the same bits; the [Distance] between their hashes is the number
 that differ. It is deliberately brightness-invariant — a re-toned logo still matches.
 
+Two details decide whether that works on real assets rather than clean test images. A
+brand logo ships on a **transparent** background, and transparency read naively is *black* —
+so the hash would key on the cut-out silhouette instead of the artwork, and a dark and a
+white version of the same mark would be indistinguishable. retina composites over white,
+which is what a page shows. And a **`favicon.ico` is frequently not an icon** — often a PNG,
+a GIF, or a bare Windows bitmap wearing the wrong extension — so retina reads the format
+from the bytes and decodes the icon and bitmap formats the standard library will not touch.
+
 ## The line it will not cross
 
 retina turns an image you already have into a fingerprint. It does **not** go and get

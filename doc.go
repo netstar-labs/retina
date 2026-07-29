@@ -10,8 +10,14 @@
 // re-compression, and minor edits. [AHash] (average), [DHash] (gradient), and [PHash]
 // (DCT) each reduce an [image.Image] to a 64-bit hash whose [Distance] (Hamming) to a
 // brand-asset hash is small when the images are visually close. PHash is the most
-// robust; AHash the most forgiving/cheap; DHash keys on gradients. [Decode] turns
-// PNG/JPEG/GIF bytes into an image (with a decompression-bomb guard) for hashing.
+// robust; AHash the most forgiving/cheap; DHash keys on gradients.
+//
+// [Decode] turns image bytes into an [image.Image] for hashing, with a decompression-bomb
+// guard, and takes the format from the bytes rather than any filename — a favicon.ico in
+// the wild is as often a PNG, a GIF, or a bare BMP as a real icon. PNG, JPEG, and GIF go
+// to the standard library; ICO and BMP are decoded here, since the standard library reads
+// neither. Transparency is composited over white, so the hash keys on the artwork as a
+// page would show it rather than on an alpha silhouette against black.
 //
 // [Favicon] answers "who else serves this exact icon?" — an exact-content fingerprint,
 // not a perceptual one. It is the Shodan-compatible favicon hash (MurmurHash3 x86

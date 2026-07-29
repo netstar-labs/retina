@@ -9,8 +9,8 @@ dependencies, no CGO.
 
 ```
  image bytes ─▶ Decode ─▶ image.Image ─┬─▶ grayResize 32×32 ─▶ DCT ─▶ 8×8 low-freq ─▶ PHash
-   (bomb-guarded, PNG/JPEG/GIF)         ├─▶ grayResize 9×8  ─▶ h-gradient bits    ─▶ DHash
-                                        └─▶ grayResize 8×8  ─▶ >mean bits         ─▶ AHash
+   (bomb-guarded; PNG/JPEG/GIF via     ├─▶ grayResize 9×8  ─▶ h-gradient bits    ─▶ DHash
+    image.Decode, ICO/BMP in ico.go)   └─▶ grayResize 8×8  ─▶ >mean bits         ─▶ AHash
 
  icon bytes  ─▶ base64.encodebytes (76-col) ─▶ MurmurHash3 x86_32 (seed 0) ─▶ Favicon (int32)
 
@@ -22,6 +22,7 @@ dependencies, no CGO.
 | Piece | Responsibility |
 |---|---|
 | `retina.go` | `PHash`/`DHash`/`AHash`, `Distance`, `Decode` (with the `MaxPixels` bomb guard), and the internals: `grayResize` (area-average downscale to a grayscale matrix), the precomputed DCT cosine table, `dct2D` (separable DCT-II), `medianExcludingDC`. |
+| `ico.go` | the ICO and BMP decoders the standard library lacks: `decodeICO` (icon directory → largest entry → embedded PNG or DIB), `decodeBMP`, and `decodeDIB` (BITMAPINFOHEADER, palette, bottom-up rows, 1-bpp AND mask) at 1/4/8/16/24/32 bpp. |
 | `favicon.go` | `Favicon`, `base64Chunked` (Python `base64.encodebytes`-compatible wrapping), and the canonical `murmur3x86_32`. |
 
 ## The perceptual hashes
@@ -51,11 +52,41 @@ wrapped at 76 columns, each line newline-terminated), and hashed with **MurmurHa
 32-bit, seed 0**, reported as a signed `int32`. Both are pinned by known-answer tests
 against real `mmh3`.
 
+## Reading what the web actually serves
+
+`Decode` dispatches on the leading bytes, not on any filename, because a favicon is
+routinely served under the wrong extension. Of 4,756 `.ico` files sampled from a developer
+machine, 567 were PNG or GIF, 7 were bare BMP, and 19 were WebP — only the rest were icons.
+
+- **ICO.** An icon file is a directory of images. retina takes the **largest** (ties by
+  colour depth): the frame carrying the most signal for a perceptual hash. Each payload is
+  either an embedded PNG (modern) or a DIB — BITMAPINFOHEADER, optional palette, bottom-up
+  rows, then a 1-bpp AND mask marking transparent pixels.
+- **The directory's `bpp` field is not trusted.** Real icons write 0 there, or a value the
+  bitmap header contradicts. The depth comes from the DIB header alone; reading the
+  directory instead walks the rows at the wrong stride, and mistakes a 32-bpp alpha channel
+  for a legacy mask. (Pillow trusts the directory, which is the sole reason its decode ever
+  differs from retina's — and on two of the sampled icons it fails outright.)
+- **32-bpp alpha wins over the mask**, since a modern icon's mask is decorative and often
+  stale; but an all-zero alpha channel is taken as opaque, that being an encoder quirk
+  rather than a genuinely invisible icon.
+- **BMP** is supported for the same reason — a bare bitmap named `favicon.ico` is a real
+  thing browsers sniff and render — and reuses the DIB decoder.
+- **WebP is out.** It is the one format that would cost retina its zero dependencies.
+
 ## Design choices & trade-offs
 
 - **Pure stdlib, no resize dependency.** Go has no image-resize in the standard library,
   so `grayResize` implements a simple area-average downscale — robust for the
   downscaling hashing needs and keeps retina zero-dependency (no `x/image`, no CGO).
+- **Transparency composites over white.** `image.Image.At` returns *premultiplied*
+  channels, so a transparent pixel arrives as black — and brand assets ship on transparent
+  backgrounds. Hashing that directly keys on the alpha silhouette against black: the same
+  mark in dark and in white ink hashes identically, and neither matches a screenshot of the
+  page. `luma601` composites over white first (white being what an unstyled page shows),
+  per channel rather than by the algebraically-equivalent single addition — in floating
+  point the shortcut leaves a transparent pixel an epsilon from an opaque white one, enough
+  to flip a PHash bit where a flat region ties with the median.
 - **Brightness-invariant PHash.** Dropping the DC coefficient makes a re-lit or re-toned
   logo still match. The cost: a near-flat image has no stable structure, so its PHash is
   floating-point noise — expected and harmless for real logos/screenshots (DHash/AHash of

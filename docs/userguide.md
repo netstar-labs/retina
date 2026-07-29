@@ -5,8 +5,8 @@
 ```go
 import "github.com/netstar-labs/retina"
 
-img, err := retina.Decode(pngOrJpegOrGifBytes) // decompression-bomb-guarded
-if err != nil { /* not an image, or over MaxPixels */ }
+img, err := retina.Decode(iconOrImageBytes) // PNG/JPEG/GIF/ICO/BMP, bomb-guarded
+if err != nil { /* not a supported image, or over MaxPixels */ }
 
 ph := retina.PHash(img) // perceptual (DCT) — most robust
 dh := retina.DHash(img) // gradient — cheap, brightness-tolerant
@@ -21,7 +21,7 @@ fav := retina.Favicon(iconBytes) // Shodan-compatible http.favicon.hash (int32)
 
 | Symbol | Meaning |
 |---|---|
-| `Decode(data []byte) (image.Image, error)` | decode PNG/JPEG/GIF, rejecting an image over `MaxPixels` before full decode |
+| `Decode(data []byte) (image.Image, error)` | decode PNG/JPEG/GIF/ICO/BMP (format sniffed from the bytes), rejecting an image over `MaxPixels` before full decode |
 | `PHash(img image.Image) uint64` | perceptual DCT hash (63 AC bits, brightness-invariant) |
 | `DHash(img image.Image) uint64` | difference (gradient) hash |
 | `AHash(img image.Image) uint64` | average hash |
@@ -42,8 +42,16 @@ icon image for near-match.
 cheap pre-filters over a large candidate set before the DCT. `Favicon` when you want to
 pivot on Shodan/Censys (`http.favicon.hash`) rather than compare pixels.
 
-**Safety.** `Decode` guards against decompression bombs (`MaxPixels`); the hashers and
-`Favicon` are fuzzed and never panic on arbitrary input.
+**Formats.** `Decode` sniffs the format from the bytes, so a mislabelled `favicon.ico`
+(commonly a PNG, a GIF, or a bare BMP) still works. ICO and BMP are decoded in-package;
+WebP is not supported. An icon's **largest** image is the one hashed. Transparency is
+composited **over white** — hash a logo with a transparent background and you get the same
+hash as the logo rendered on a page. For any other backdrop, composite it yourself with
+`image/draw` first.
+
+**Safety.** `Decode` guards against decompression bombs (`MaxPixels`) and bounds-checks
+every offset an icon or bitmap declares; the hashers and `Favicon` are fuzzed and never
+panic on arbitrary input.
 
 ## CLI
 
@@ -55,7 +63,8 @@ retina version
 ```
 
 - `hash` / `favicon` read the named image/icon files; a per-file error goes to stderr
-  and does not abort the batch.
+  and does not abort the batch, but the **exit status is 1 if any file failed** — do not
+  read `exit 0` as "everything hashed".
 - `distance` parses two 64-bit hex hashes and prints their Hamming distance.
 
 ```sh

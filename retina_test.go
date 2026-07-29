@@ -6,10 +6,21 @@ import (
 	"hash/crc32"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/png"
 	"math"
 	"testing"
 )
+
+// BenchmarkHashes1080p measures the cost of all three hashes over a screenshot-sized
+// image — every source pixel is read once per hash, through the [image.Image] interface.
+func BenchmarkHashes1080p(b *testing.B) {
+	img := texture(1920, 1080, 1)
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _, _ = PHash(img), DHash(img), AHash(img)
+	}
+}
 
 // texture renders a deterministic multi-frequency pattern in normalized coordinates,
 // so the same pattern at different pixel sizes samples the same continuous function —
@@ -120,6 +131,67 @@ func TestUniformImageDHashAHashZero(t *testing.T) {
 		if DHash(s) != 0 || AHash(s) != 0 {
 			t.Errorf("uniform image (v=%d): DHash=%x AHash=%x, want 0/0", v, DHash(s), AHash(s))
 		}
+	}
+}
+
+// wordmark draws a solid ink rectangle on a fully transparent background, the way a real
+// brand asset ships. The transparent pixels carry a non-black RGB under alpha 0, which is
+// what exporters write and what a naive (premultiplied) read would throw away.
+func wordmark(ink color.NRGBA, x1, y1 int) *image.NRGBA {
+	img := image.NewNRGBA(image.Rect(0, 0, 64, 64))
+	for y := 0; y < 64; y++ {
+		for x := 0; x < 64; x++ {
+			img.SetNRGBA(x, y, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0})
+		}
+	}
+	for y := 8; y < y1; y++ {
+		for x := 8; x < x1; x++ {
+			img.SetNRGBA(x, y, ink)
+		}
+	}
+	return img
+}
+
+// overWhite composites src onto an opaque white background — what a browser shows, and
+// what a screenshot of the page would capture.
+func overWhite(src image.Image) image.Image {
+	b := src.Bounds()
+	dst := image.NewRGBA(b)
+	draw.Draw(dst, b, image.NewUniform(color.White), image.Point{}, draw.Src)
+	draw.Draw(dst, b, src, b.Min, draw.Over)
+	return dst
+}
+
+func TestTransparentBackgroundMatchesRendered(t *testing.T) {
+	// The asset with its transparent background must hash exactly like the same asset as
+	// rendered on a page. Without compositing, alpha reads as black: the two disagreed on
+	// all 64 AHash bits.
+	logo := wordmark(color.NRGBA{R: 20, G: 20, B: 20, A: 0xff}, 40, 24)
+	rendered := overWhite(logo)
+	for _, h := range []struct {
+		name string
+		fn   func(image.Image) uint64
+	}{{"PHash", PHash}, {"DHash", DHash}, {"AHash", AHash}} {
+		if a, b := h.fn(logo), h.fn(rendered); a != b {
+			t.Errorf("%s of a transparent-background asset differs from the rendered one: %016x vs %016x (distance %d)",
+				h.name, a, b, Distance(a, b))
+		}
+	}
+	// Antialiased edges (partial alpha) round slightly differently through image/draw, so
+	// allow a couple of bits there rather than demanding exactness.
+	soft := wordmark(color.NRGBA{R: 20, G: 20, B: 20, A: 0x80}, 40, 24)
+	if d := Distance(PHash(soft), PHash(overWhite(soft))); d > 2 {
+		t.Errorf("PHash of a half-transparent asset differs from the rendered one by %d bits", d)
+	}
+}
+
+func TestInkColourIsNotLostToAlpha(t *testing.T) {
+	// Same silhouette, opposite ink. Read premultiplied, both marks sit on black and the
+	// two hash identically — a false match between unrelated brand assets.
+	dark := wordmark(color.NRGBA{R: 20, G: 20, B: 20, A: 0xff}, 40, 24)
+	light := wordmark(cWhite, 40, 24)
+	if PHash(dark) == PHash(light) && DHash(dark) == DHash(light) && AHash(dark) == AHash(light) {
+		t.Error("a dark and a white mark of the same shape hash identically — alpha is being read as black")
 	}
 }
 
