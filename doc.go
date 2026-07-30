@@ -1,6 +1,6 @@
 // Package retina fingerprints images so a brand's logo or favicon can be matched even
 // when the domain and page text do not. It is the visual axis of the netstar
-// brand-protection family: twist/unmask/echo match a name by edits, glyphs, and sound,
+// brand-protection family: snare/unmask/echo match a name by edits, glyphs, and sound,
 // and retina matches the pixels — a phishing kit that clones the real logo gives itself
 // away here.
 //

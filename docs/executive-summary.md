@@ -13,7 +13,7 @@ hash, being identical to Shodan's `http.favicon.hash`, turns one hit into a sear
 finds every host reusing the icon (a whole campaign's fleet).
 
 **How it fits.** retina is the visual stage of the netstar brand-protection family.
-`vigil` discovers a brand-adjacent domain, `twist`/`unmask`/`echo` score its name, and
+`vigil` discovers a brand-adjacent domain, `snare`/`unmask`/`echo` score its name, and
 retina scores the page it serves. It pairs with `ditto` (text near-duplicate) for
 full page-clone detection and feeds a visual signal to `mirage`.
 

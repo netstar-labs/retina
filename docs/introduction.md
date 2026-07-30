@@ -1,6 +1,6 @@
 # Meet retina — the logo, not the label
 
-Everything else in the brand-protection family reads a *name*. `twist` measures how
+Everything else in the brand-protection family reads a *name*. `snare` measures how
 many edits `paypa1.com` is from `paypal.com`; `unmask` folds the Cyrillic look-alike;
 `echo` catches the homophone. But a phishing page gives itself away another way, one no
 name-matcher can see: it clones the brand's **logo and favicon**, pixel for pixel,
