@@ -3,7 +3,7 @@
 Visual fingerprinting for Go — **hash a brand's logo or favicon so a phishing page
 that clones the pixels gives itself away, even when the domain and text do not**. Pure
 Go, **zero dependencies**, `image/*` standard library only (no CGO). retina is the
-**visual axis** of the netstar brand-protection family: `twist`/`unmask`/`echo` match a
+**visual axis** of the netstar brand-protection family: `snare`/`unmask`/`echo` match a
 *name* by edits, glyphs, and sound — retina matches the *image*.
 
 ```go
@@ -46,7 +46,7 @@ WebP is the one format left out: decoding it would cost retina its zero dependen
 
 ## Where it fits
 
-`vigil` surfaces a brand-adjacent domain from Certificate Transparency; `twist`/`unmask`/`echo`
+`vigil` surfaces a brand-adjacent domain from Certificate Transparency; `snare`/`unmask`/`echo`
 score its *name*; retina scores the *page it serves* — a logo `PHash` close to the
 brand's, or a favicon hash that Shodan shows on a hundred other hosts. Pairs with
 `ditto` (text near-duplicate) for full page-clone detection, and feeds a visual signal
